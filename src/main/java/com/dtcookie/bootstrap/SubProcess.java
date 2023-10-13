@@ -42,7 +42,7 @@ public final class SubProcess extends Thread {
 
     public void execute() throws IOException {
 
-        String environmentPrefix = UUID.randomUUID().toString();
+        String environmentPrefix = InetAddress.getLocalHost().getHostName();
 
         Properties allEnvVars = new Properties();
         try (InputStream in = SubProcess.class.getClassLoader().getResourceAsStream("jvm.environment.properties")) {
