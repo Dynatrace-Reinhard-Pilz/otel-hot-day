@@ -55,7 +55,7 @@
 			<version>6.3.0</version>
 		</dependency>
 	</dependencies>
-
+<!--
 	<build>
 		<finalName>${project.name}</finalName>
 		<plugins>
@@ -93,4 +93,5 @@
 			</plugin>
 		</plugins>
 	</build>
+-->
 </project>
