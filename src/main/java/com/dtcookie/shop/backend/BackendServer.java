@@ -86,7 +86,9 @@ public class BackendServer {
 	}
 
 	public static UUID handleCreditcards(HttpExchange exchange) throws Exception {
-		// log.info("Backend received request: " + exchange.getRequestURI().toString());
+		String requestURI = exchange.getRequestURI().toString();
+		String productID = requestURI.substring(requestURI.lastIndexOf("/") + 1);
+
 		Headers headers = exchange.getRequestHeaders();
 		Context ctx = openTelemetry.getPropagators().getTextMapPropagator().extract(Context.current(), headers, getter);
 		try (Scope ignored = ctx.makeCurrent()) {
@@ -101,7 +103,7 @@ public class BackendServer {
 
 				UUID result = process(UUID.randomUUID());
 				serverSpan.setAttribute(SemanticAttributes.HTTP_RESPONSE_STATUS_CODE, 200);
-				executor.submit(Purchase.confirm(result));
+				executor.submit(Purchase.confirm(productID));
 				return result;
 			} catch (Exception e) {
 				serverSpan.setAttribute(SemanticAttributes.HTTP_RESPONSE_STATUS_CODE, 500);
