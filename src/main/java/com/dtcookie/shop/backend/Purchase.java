@@ -1,6 +1,5 @@
 package com.dtcookie.shop.backend;
 
-import java.util.UUID;
 import java.util.concurrent.Callable;
 
 import com.dtcookie.shop.frontend.FrontendServer;
@@ -8,13 +7,13 @@ import com.dtcookie.util.Http;
 
 public class Purchase {
 
-    private final UUID id;
+    private final String id;
 
-    public Purchase(UUID id) {
+    public Purchase(String id) {
         this.id = id;
     }
 
-    public static Callable<String> confirm(UUID id) {
+    public static Callable<String> confirm(String id) {
         return new Purchase(id).confirm();
     }
     
