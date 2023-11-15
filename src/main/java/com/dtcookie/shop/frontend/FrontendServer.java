@@ -4,7 +4,6 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.Statement;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.logging.log4j.LogManager;
@@ -33,6 +32,9 @@ public class FrontendServer {
 	private static final OpenTelemetry openTelemetry = GlobalOpenTelemetry.get();
 	private static final Meter meter = openTelemetry.meterBuilder("manual-instrumentation").setInstrumentationVersion("1.0.0").build();
     private static final LongCounter confirmedPurchasesCounter = meter.counterBuilder("shop.purchases.confirmed").setDescription("Number of confirmed purchases").build();
+    private static final LongCounter expectedRevenueCounter = meter.counterBuilder("shop.revenue.expected").setDescription("Expected revenue in dollar").build();
+	private static final LongCounter actualRevenueCounter = meter.counterBuilder("shop.revenue.actual").setDescription("Actual revenue in dollar").build();
+
 
 	public static void submain(String[] args) throws Exception {
 		Otel.init();
@@ -46,21 +48,44 @@ public class FrontendServer {
 
 	public static String handlePlaceOrder(HttpExchange exchange) throws Exception {
 		// log.info("Frontend received request: " + exchange.getRequestURI().toString());
-		String productID = UUID.randomUUID().toString();
+		Product product = Product.random();
+		String productID = product.getID();
+		reportExpectedRevenue(product);
 		try (Connection con = Database.getConnection(10, TimeUnit.SECONDS)) {
 			try (Statement stmt = con.createStatement()) {
 				stmt.executeUpdate("INSERT INTO orders VALUES (" + productID + ")");
 			}
 		}
-		Http.JDK.GET("http://localhost:" + BackendServer.CREDIT_CARD_LISTEN_PORT + "/validate-credit-card");
+		Http.JDK.GET("http://localhost:" + BackendServer.CREDIT_CARD_LISTEN_PORT + "/validate-credit-card/"+productID);
 
-		return Http.JDK.GET("http://localhost:" + BackendServer.INVENTORY_LISTEN_PORT + "/check-inventory/" + URLEncoder.encode(Product.random().getName(), StandardCharsets.UTF_8));
+		return Http.JDK.GET("http://localhost:" + BackendServer.INVENTORY_LISTEN_PORT + "/check-inventory/" + URLEncoder.encode(product.getName(), StandardCharsets.UTF_8));
 	}
 
 	public static String handlePurchaseConfirmed(HttpExchange exchange) throws Exception {
-        Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), "default");
-        confirmedPurchasesCounter.add(1, attributes);
+		String requestURI = exchange.getRequestURI().toString();
+		String productID = requestURI.substring(requestURI.lastIndexOf("/") + 1);
+		Product product = Product.getByID(productID);
+
+		reportPurchases(product);
+		reportActualRevenue(product);
+
 		return "confirmed";
+	}
+
+	private static void reportPurchases(Product product) {
+        Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), product.getName());
+        confirmedPurchasesCounter.add(1, attributes);
+	}
+
+
+	private static void reportExpectedRevenue(Product product) {
+        Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), product.getName());
+        expectedRevenueCounter.add(product.getPrice(), attributes);
+	}	
+
+	private static void reportActualRevenue(Product product) {
+        Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), product.getName());
+        actualRevenueCounter.add(product.getPrice(), attributes);
 	}	
 
 }
