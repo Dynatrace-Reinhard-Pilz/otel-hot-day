@@ -4,7 +4,7 @@
         <Console name="Console">
             <PatternLayout pattern="[%d{HH:mm:ss}] [%-5level] [%c{1}] %msg %throwable{short} %n" />
         </Console>
-        <OpenTelemetry name="OpenTelemetry" captureMapMessageAttributes="true" captureExperimentalAttributes="true" />
+        <!-- <OpenTelemetry name="OpenTelemetry" captureMapMessageAttributes="true" captureExperimentalAttributes="true" /> -->
         <File name="File" fileName="logs/hotday-${env:DEMO_PURPOSE}.log">
             <PatternLayout>
                 <Pattern>[%d{HH:mm:ss}] [%-5level] [%c{1}] %msg %throwable{short}%n</Pattern>
@@ -13,7 +13,7 @@
     </Appenders>
     <Loggers>
         <Root level="trace">
-            <AppenderRef ref="OpenTelemetry" />
+            <!-- <AppenderRef ref="OpenTelemetry" /> -->
             <AppenderRef ref="Console" />
             <AppenderRef ref="File" />
         </Root>
