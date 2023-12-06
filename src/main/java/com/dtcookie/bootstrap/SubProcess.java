@@ -5,6 +5,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,8 +13,6 @@ import java.util.ArrayList;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import java.net.InetAddress;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -111,6 +110,7 @@ public final class SubProcess extends Thread {
         builder.directory(new File(".").getAbsoluteFile());
         builder.environment().put("DT_DEBUGFLAGS", "debugDisableJavaInstrumentationNative=" + (!isInstrumented));
         builder.environment().put("DT_TAGS", "environment=" + environmentPrefix);
+        builder.environment().put("ENVIRONMENT", environmentPrefix);
         for (Object key : envVars.keySet()) {
             // System.out.println("---- " + key.toString() + ": " + envVars.get(key).toString());    
             builder.environment().put(key.toString(), envVars.get(key).toString());

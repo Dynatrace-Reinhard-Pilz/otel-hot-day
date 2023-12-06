@@ -27,16 +27,18 @@ public class FrontendServer {
 	
 	private static final Logger log = LogManager.getLogger(FrontendServer.class);
 
+	private static final String environment = System.getenv("ENVIRONMENT");
 	public static final int LISTEN_PORT = 54039;
 
 	private static final OpenTelemetry openTelemetry = GlobalOpenTelemetry.get();
 	private static final Meter meter = openTelemetry.meterBuilder("manual-instrumentation").setInstrumentationVersion("1.0.0").build();
-    private static final LongCounter confirmedPurchasesCounter = meter.counterBuilder("shop.purchases.confirmed").setDescription("Number of confirmed purchases").build();
-    private static final LongCounter expectedRevenueCounter = meter.counterBuilder("shop.revenue.expected").setDescription("Expected revenue in dollar").build();
-	private static final LongCounter actualRevenueCounter = meter.counterBuilder("shop.revenue.actual").setDescription("Actual revenue in dollar").build();
+    private static final LongCounter confirmedPurchasesCounter = meter.counterBuilder("shop." + environment + ".purchases.confirmed").setDescription("Number of confirmed purchases").build();
+    private static final LongCounter expectedRevenueCounter = meter.counterBuilder("shop." + environment + ".revenue.expected").setDescription("Expected revenue in dollar").build();
+	private static final LongCounter actualRevenueCounter = meter.counterBuilder("shop." + environment + ".revenue.actual").setDescription("Actual revenue in dollar").build();
 
 
 	public static void submain(String[] args) throws Exception {
+		
 		Otel.init();
 		log.info("Launching Frontend Server on port " + LISTEN_PORT);
 		Http.serve(
