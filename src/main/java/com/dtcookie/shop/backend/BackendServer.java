@@ -25,6 +25,7 @@ import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
@@ -79,7 +80,8 @@ public class BackendServer {
 			return UUID.randomUUID();
 		} catch (Exception e) {
 			span.recordException(e);
-				throw e;
+			span.setStatus(StatusCode.ERROR);
+			throw e;
 		} finally {
 			span.end();
 		}
@@ -108,6 +110,7 @@ public class BackendServer {
 			} catch (Exception e) {
 				serverSpan.setAttribute(SemanticAttributes.HTTP_RESPONSE_STATUS_CODE, 500);
 				serverSpan.recordException(e);
+				serverSpan.setStatus(StatusCode.ERROR);
 				log.warn("credit card validation failed", e);
 				throw e;
 			} finally {
@@ -138,6 +141,7 @@ public class BackendServer {
 			} catch (Exception e) {
 				serverSpan.setAttribute(SemanticAttributes.HTTP_RESPONSE_STATUS_CODE, 500);
 				serverSpan.recordException(e);
+				serverSpan.setStatus(StatusCode.ERROR);
 				log.warn("checking inventory failed", e);
 				throw e;
 			} finally {
@@ -151,6 +155,7 @@ public class BackendServer {
 		try (Scope scope = span.makeCurrent()) {
 			Database.execute("SELECT * FROM inventory WHERE product = '" + UUID.randomUUID().toString() + "'");
 		} catch (Exception e) {
+			span.setStatus(StatusCode.ERROR);
 			span.recordException(e);
 			throw e;
 		} finally {
