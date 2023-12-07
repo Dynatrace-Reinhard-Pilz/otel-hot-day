@@ -4,6 +4,8 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.logging.log4j.LogManager;
@@ -22,6 +24,12 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.LongCounter;
 import io.opentelemetry.api.metrics.Meter;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.Context;
 
 public class FrontendServer {
 	
@@ -35,6 +43,7 @@ public class FrontendServer {
     private static final LongCounter confirmedPurchasesCounter = meter.counterBuilder("shop." + environment + ".purchases.confirmed").setDescription("Number of confirmed purchases").build();
     private static final LongCounter expectedRevenueCounter = meter.counterBuilder("shop." + environment + ".revenue.expected").setDescription("Expected revenue in dollar").build();
 	private static final LongCounter actualRevenueCounter = meter.counterBuilder("shop." + environment + ".revenue.actual").setDescription("Actual revenue in dollar").build();
+	private static final Tracer tracer = openTelemetry.getTracer("manual-instrumentation");
 
 
 	public static void submain(String[] args) throws Exception {
@@ -58,36 +67,88 @@ public class FrontendServer {
 				stmt.executeUpdate("INSERT INTO orders VALUES (" + productID + ")");
 			}
 		}
-		Http.JDK.GET("http://localhost:" + BackendServer.CREDIT_CARD_LISTEN_PORT + "/validate-credit-card/"+productID);
+		validateCreditCard(product);
+		return checkInventory(product);
+	}
 
-		return Http.JDK.GET("http://localhost:" + BackendServer.INVENTORY_LISTEN_PORT + "/check-inventory/" + URLEncoder.encode(product.getName(), StandardCharsets.UTF_8));
+	public static void validateCreditCard(Product product) throws Exception {
+		Span span = tracer.spanBuilder("validate-credit-card").setSpanKind(SpanKind.INTERNAL).startSpan();
+		try (Scope scope = span.makeCurrent()) {
+			Http.JDK.GET("http://localhost:" + BackendServer.CREDIT_CARD_LISTEN_PORT + "/validate-credit-card/"+product.getID(), null);
+			Span childSpan = tracer.spanBuilder("cc-valid").setParent(Context.current().with(span)).startSpan();
+			try {
+				Thread.sleep(50);
+			} finally {
+				childSpan.end();
+			}			
+		} catch (Exception e) {
+			span.recordException(e);
+			span.setStatus(StatusCode.ERROR);
+			throw e;
+		} finally {
+			span.end();
+		}
+	}
+
+	public static String checkInventory(Product product) {
+		Span span = tracer.spanBuilder("check-inventory").setSpanKind(SpanKind.INTERNAL).startSpan();
+		try (Scope scope = span.makeCurrent()) {
+			Span childSpan = tracer.spanBuilder("resolve-inventory-backend").setParent(Context.current().with(span)).startSpan();
+			try {
+				return Http.JDK.GET("http://localhost:" + BackendServer.INVENTORY_LISTEN_PORT + "/check-inventory/" + URLEncoder.encode(product.getName(), StandardCharsets.UTF_8), null);
+			} finally {
+				childSpan.end();
+			}			
+		} catch (Exception e) {
+			span.recordException(e);
+			span.setStatus(StatusCode.ERROR);
+			throw e;
+		} finally {
+			span.end();
+		}		
 	}
 
 	public static String handlePurchaseConfirmed(HttpExchange exchange) throws Exception {
-		String requestURI = exchange.getRequestURI().toString();
-		String productID = requestURI.substring(requestURI.lastIndexOf("/") + 1);
+		String productID = exchange.getRequestHeaders().get("product.id").get(0);
+		// String requestURI = exchange.getRequestURI().toString();
+		// String productID = requestURI.substring(requestURI.lastIndexOf("/") + 1);
 		Product product = Product.getByID(productID);
-
-		reportPurchases(product);
-		reportActualRevenue(product);
+		Span span = tracer.spanBuilder("purchase-confirmed").setSpanKind(SpanKind.INTERNAL).startSpan();
+		try (Scope scope = span.makeCurrent()) {
+			span.setAttribute("product.name", product.getName());
+			reportPurchases(product);
+			reportActualRevenue(product);
+			for (int i = 0; i < 50; i++) {
+				Span childSpan = tracer.spanBuilder("persist-purchase-confirmation-" + i).setParent(Context.current().with(span)).startSpan();
+				try {
+					Thread.sleep(1);
+				} finally {
+					childSpan.end();
+				}
+			}
+		} catch (Exception e) {
+			span.recordException(e);
+			span.setStatus(StatusCode.ERROR);
+			throw e;
+		} finally {
+			span.end();
+		}		
 
 		return "confirmed";
 	}
 
 	private static void reportPurchases(Product product) {
-        Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), product.getName());
-        confirmedPurchasesCounter.add(1, attributes);
+		Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), product.getName());
+		confirmedPurchasesCounter.add(1, attributes);	
 	}
 
-
 	private static void reportExpectedRevenue(Product product) {
-        Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), product.getName());
-        expectedRevenueCounter.add(product.getPrice(), attributes);
+		Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), product.getName());
+		expectedRevenueCounter.add(product.getPrice(), attributes);
 	}	
 
 	private static void reportActualRevenue(Product product) {
-        Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), product.getName());
-        actualRevenueCounter.add(product.getPrice(), attributes);
-	}	
-
+		Attributes attributes = Attributes.of(AttributeKey.stringKey("product"), product.getName());
+		actualRevenueCounter.add(product.getPrice(), attributes);		
+	}
 }

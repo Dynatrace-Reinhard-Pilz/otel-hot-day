@@ -1,5 +1,6 @@
 package com.dtcookie.shop.backend;
 
+import java.util.Collections;
 import java.util.concurrent.Callable;
 
 import com.dtcookie.shop.frontend.FrontendServer;
@@ -21,7 +22,7 @@ public class Purchase {
         return new Callable<String>() {
             @Override
             public String call() throws Exception {
-                return Http.Jodd.GET("http://localhost:" + FrontendServer.LISTEN_PORT + "/purchase-confirmed/" + id);
+                return Http.Jodd.GET("http://localhost:" + FrontendServer.LISTEN_PORT + "/purchase-confirmed", Collections.singletonMap("product.id",  id));
             }
         };        
     }

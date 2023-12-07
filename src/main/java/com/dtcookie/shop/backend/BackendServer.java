@@ -16,6 +16,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.dtcookie.database.Database;
+import com.dtcookie.shop.Product;
 import com.dtcookie.util.Http;
 import com.dtcookie.util.Otel;
 import com.sun.net.httpserver.Headers;
@@ -23,6 +24,7 @@ import com.sun.net.httpserver.HttpExchange;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
@@ -58,7 +60,7 @@ public class BackendServer {
 					} catch (InterruptedException e) {
 						return;
 					}
-				}		
+				}
 			}
 		}, 1000 * 60 * 2, 1000 * 60 * 15);
 
@@ -69,11 +71,11 @@ public class BackendServer {
 		Http.serve(INVENTORY_LISTEN_PORT, "/check-inventory", BackendServer::handleInventory);
 	}
 
-	public static UUID process(UUID value) throws Exception {
+	public static UUID process(Product product) throws Exception {
 		Span span = tracer.spanBuilder("process").setSpanKind(SpanKind.INTERNAL).startSpan();
 		try (Scope scope = span.makeCurrent()) {
-			span.setAttribute("foo", value.toString());
-			Database.execute("SELECT pattern FROM credit_card_patterns WHERE vendor = '" + value + "'");
+			span.setAttribute("product.name", product.getName());
+			Database.execute("SELECT pattern FROM credit_card_patterns WHERE vendor = '" + product.getID() + "'");
 			for (int i = 0; i < 1 + ThreadLocalRandom.current().nextLong(1); i++) {
 				executor.submit(BackendServer::postProcess);
 			}
@@ -93,7 +95,8 @@ public class BackendServer {
 
 		Headers headers = exchange.getRequestHeaders();
 		Context ctx = openTelemetry.getPropagators().getTextMapPropagator().extract(Context.current(), headers, getter);
-		try (Scope ignored = ctx.makeCurrent()) {
+
+		try (Scope ctScope = ctx.makeCurrent()) {
 			Span serverSpan = tracer.spanBuilder(exchange.getRequestURI().toString()).setSpanKind(SpanKind.SERVER)
 					.startSpan();
 			try (Scope scope = serverSpan.makeCurrent()) {
@@ -103,7 +106,7 @@ public class BackendServer {
 				serverSpan.setAttribute(SemanticAttributes.SERVER_ADDRESS, "localhost:" + CREDIT_CARD_LISTEN_PORT);
 				serverSpan.setAttribute(SemanticAttributes.URL_PATH, exchange.getRequestURI().toString());
 
-				UUID result = process(UUID.randomUUID());
+				UUID result = process(Product.random());
 				serverSpan.setAttribute(SemanticAttributes.HTTP_RESPONSE_STATUS_CODE, 200);
 				executor.submit(Purchase.confirm(productID));
 				return result;
@@ -120,9 +123,9 @@ public class BackendServer {
 	}
 
 	public static String handleInventory(HttpExchange exchange) throws Exception {
-		// log.info("Backend received request: " + exchange.getRequestURI().toString());
 		String url = exchange.getRequestURI().toString();
 		String productName = url.substring(url.lastIndexOf("/"));
+		int quantity = 1;
 		Headers headers = exchange.getRequestHeaders();
 		Context ctx = openTelemetry.getPropagators().getTextMapPropagator().extract(Context.current(), headers, getter);
 		try (Scope ignored = ctx.makeCurrent()) {
@@ -136,6 +139,9 @@ public class BackendServer {
 				serverSpan.setAttribute(SemanticAttributes.URL_PATH, exchange.getRequestURI().toString());
 
 				Database.execute("SELECT * FROM products WHERE name = '" + productName + "'");
+
+				checkStorageLocations(productName, quantity);
+
 				serverSpan.setAttribute(SemanticAttributes.HTTP_RESPONSE_STATUS_CODE, 200);
 				return "done";
 			} catch (Exception e) {
@@ -147,6 +153,37 @@ public class BackendServer {
 			} finally {
 				serverSpan.end();
 			}
+		}
+	}
+
+	public static void checkStorageLocations(String productName, int quantity) {
+		Span span = tracer.spanBuilder("check-storage-locations").setSpanKind(SpanKind.INTERNAL).startSpan();
+		try (Scope scope = span.makeCurrent()) {
+			boolean deducted = false;
+			for (StorageLocation location : StorageLocation.getAll()) {
+				if (location.available(productName, quantity)) {
+					deductFromLocation(location, productName, quantity);
+					deducted = true;
+					break;
+				}
+			}
+			if (!deducted) {
+				span.addEvent("nothing deducted", Attributes.builder().put("product.name", productName).build());
+			}
+		} finally {
+			span.end();
+		}
+	}
+
+	public static void deductFromLocation(StorageLocation location, String productName, int quantity) {
+		Span span = tracer.spanBuilder("deduct").setSpanKind(SpanKind.INTERNAL).startSpan();
+		try (Scope scope = span.makeCurrent()) {
+			span.setAttribute("product.name", productName);
+			span.setAttribute("location.name", location.getName());
+			span.setAttribute("quantity", quantity);
+			location.deduct(productName, quantity);
+		} finally {
+			span.end();
 		}
 	}
 
@@ -164,18 +201,19 @@ public class BackendServer {
 		return null;
 	}
 
-	public static Object performFullCreditCardScan() throws Exception {		
-        long start = System.currentTimeMillis();
-        try (Connection con = Database.getConnection(60, TimeUnit.SECONDS)) {
-            Thread.sleep(50 * (System.currentTimeMillis() - start));
+	public static Object performFullCreditCardScan() throws Exception {
+		long start = System.currentTimeMillis();
+		try (Connection con = Database.getConnection(60, TimeUnit.SECONDS)) {
+			Thread.sleep(50 * (System.currentTimeMillis() - start));
 			if (con != null) {
 				try (Statement stmt = con.createStatement()) {
-					stmt.executeUpdate("SELECT * FROM credit_card WHERE number = '"+ UUID.randomUUID().toString() + "'");
+					stmt.executeUpdate(
+							"SELECT * FROM credit_card WHERE number = '" + UUID.randomUUID().toString() + "'");
 				}
 			} else {
 				executor.submit(BackendServer::performFullCreditCardScan);
 			}
-        }
+		}
 		return null;
 	}
 

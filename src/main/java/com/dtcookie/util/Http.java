@@ -20,13 +20,13 @@ import jodd.http.HttpResponse;
 
 public interface Http {
 
-    public String GET(String url);
+    public String GET(String url, Map<String,String> headers);
 
     public String POST(String url, String body);
 
     public static Http JDK = new Http() {
         @Override
-        public String GET(String url) {
+        public String GET(String url, Map<String,String> headers) {
             URL u = null;
             try {
                 u = new URL(url);
@@ -77,9 +77,14 @@ public interface Http {
 
     public static Http Jodd = new Http() {
         @Override
-        public String GET(String url) {
+        public String GET(String url, Map<String,String> headers) {
             try {
                 HttpRequest httpRequest = HttpRequest.get(url);
+                if (headers != null) {
+                    for (Map.Entry<String, String> entry : headers.entrySet()) {
+                        httpRequest.header(entry.getKey(), entry.getValue());
+                    }
+                }                
                 HttpResponse response = httpRequest.send();
                 return response.bodyText();
             } catch (Throwable t) {
