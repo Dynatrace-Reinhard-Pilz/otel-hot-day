@@ -22,6 +22,7 @@ import io.opentelemetry.api.metrics.Meter;
 public class Database {
 
     public static final Logger log = LogManager.getLogger(Database.class);
+    private static final String environment = System.getenv("ENVIRONMENT");
 
     private static com.dtcookie.database.internal.Driver DRIVER = new com.dtcookie.database.internal.Driver().setConnectionListener(Database::onConnectionClosed);
     private static final OpenTelemetry openTelemetry = GlobalOpenTelemetry.get();
