@@ -26,7 +26,7 @@ public class Database {
     private static com.dtcookie.database.internal.Driver DRIVER = new com.dtcookie.database.internal.Driver().setConnectionListener(Database::onConnectionClosed);
     private static final OpenTelemetry openTelemetry = GlobalOpenTelemetry.get();
     private static final Meter meter = openTelemetry.meterBuilder("manual-instrumentation").setInstrumentationVersion("1.0.0").build();
-    private static final LongUpDownCounter activeConnectionsCounter = meter.upDownCounterBuilder("shop.database.connections.active").setDescription("Number of active Database Connections").build();
+    private static final LongUpDownCounter activeConnectionsCounter = meter.upDownCounterBuilder("shop." + environment + ".database.connections.active").setDescription("Number of active Database Connections").build();
 
     private static final AtomicInteger activeConnections = new AtomicInteger(20);
 
