@@ -1,81 +1,77 @@
 package com.dtcookie.bootstrap;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.dtcookie.util.Streams;
 
 public final class SubProcess extends Thread {
 
-    private static final Logger log = LogManager.getLogger(SubProcess.class);
+    // private static final Logger log = LogManager.getLogger(SubProcess.class);
 
     private static final ExecutorService executorService = Executors.newCachedThreadPool();
 
     private final boolean isInstrumented;
     private final String purpose;
     private final String clusterID;
-    private final String virtualHostName;
 
     private Process process;
 
-    public SubProcess(String clusterID, String purpose, String virtualHostName, boolean isInstrumented) {
+    public SubProcess(String clusterID, String purpose, boolean isInstrumented) {
         this.purpose = purpose;
         this.clusterID = clusterID;
-        this.virtualHostName = virtualHostName;
         this.isInstrumented = isInstrumented;
     }
 
     public void execute() throws IOException {
-
-        String environmentPrefix = InetAddress.getLocalHost().getHostName();
-
-        Properties allEnvVars = new Properties();
-        try (InputStream in = SubProcess.class.getClassLoader().getResourceAsStream("jvm.environment.properties")) {
-            allEnvVars.load(in);
+        if (this.purpose.equals("FEEDBACK")) {
+            executePython();
+            return;
         }
-        String purposePrefix = purpose + ".";
+        // System.out.println("---- " + this.clusterID + " -----");
         Properties envVars = new Properties();
-        for (Object oKey : allEnvVars.keySet()) {
-            String key = (String)oKey;
-            if (key.equals("ENVIRONMENT")) {
-                environmentPrefix = allEnvVars.get(key).toString();
-            }
-        }
-        for (Object oKey : allEnvVars.keySet()) {
-            String key = (String)oKey;
-            if (key.startsWith(purposePrefix)) {
-                envVars.put(key.toString().substring(purposePrefix.length()), allEnvVars.get(oKey).toString().replace("${ENVIRONMENT}", environmentPrefix));
-            }
-        } 
-
-        Properties allJvmOptions = new Properties();
-        try (InputStream in = SubProcess.class.getClassLoader().getResourceAsStream("jvm.options.properties")) {
-            allJvmOptions.load(in);
+        try (InputStream in = SubProcess.class.getClassLoader().getResourceAsStream(clusterID + ".jvm.environment.properties")) {
+            if (in != null) {
+                envVars.load(in);
+            }            
+        } catch (Throwable t) {
+            t.printStackTrace();
         }
         
-        Properties jvmOptions = new Properties();
-        for (Object oKey : allJvmOptions.keySet()) {
-            String key = (String)oKey;
-            if (key.startsWith(purposePrefix)) {
-                jvmOptions.put(key, allJvmOptions.get(oKey).toString().replace("${ENVIRONMENT}", environmentPrefix));
-            }
-        }
+        ArrayList<String> jvmOptions = new ArrayList<>();
 
-        // jvmOptions.put(UUID.randomUUID().toString(), "-Djdk.net.hosts.file=hosts");
+        try (InputStream in = SubProcess.class.getClassLoader().getResourceAsStream(this.clusterID + ".jvm.options")) {
+            if (in != null) {
+                try (InputStreamReader isr = new InputStreamReader(in)) {
+                    try (BufferedReader br = new BufferedReader(isr)) {
+                        String line = br.readLine();
+                        while (line != null) {
+                            line = line.trim();
+                            if (!line.startsWith("#")) {
+                                jvmOptions.add(line);
+                            }
+                            line = br.readLine();
+                        }                        
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
 
         String classPath = System.getProperty("java.class.path");
         String javaHome = System.getProperty("java.home");
@@ -89,9 +85,7 @@ public final class SubProcess extends Thread {
         tmpDir.mkdirs();        
        
         ArrayList<String> options = new ArrayList<>();
-        for (Object jvmOption : jvmOptions.values()) {
-            options.add(jvmOption.toString());
-        }
+        options.addAll(jvmOptions);
         options.add("-cp");
         options.add(classPath);
 
@@ -102,23 +96,18 @@ public final class SubProcess extends Thread {
         
         String arg = "@"+temp.toAbsolutePath().toString();
         command.add(arg);
-        // command.add(classPath);
         command.add(BootStrap.class.getName());
 
-        log.info(String.join(" ", command));
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(new File(".").getAbsoluteFile());
         builder.environment().put("DT_DEBUGFLAGS", "debugDisableJavaInstrumentationNative=" + (!isInstrumented));
-        builder.environment().put("DT_TAGS", "environment=" + environmentPrefix);
-        builder.environment().put("ENVIRONMENT", environmentPrefix);
         for (Object key : envVars.keySet()) {
-            // System.out.println("---- " + key.toString() + ": " + envVars.get(key).toString());    
             builder.environment().put(key.toString(), envVars.get(key).toString());
         }            
 
-        builder.environment().put("DEMO_PURPOSE", purpose);
-        builder.environment().put("DT_CLUSTER_ID", environmentPrefix + "-" + clusterID);
-        builder.environment().put("DT_LOCALTOVIRTUALHOSTNAME", environmentPrefix + "-" + virtualHostName);        
+        builder.environment().put("DEMO_PURPOSE", purpose);        
+        builder.environment().put("DT_CLUSTER_ID", clusterID);
+        builder.environment().put("DT_LOCALTOVIRTUALHOSTNAME", clusterID);        
 
         synchronized (this) {
             this.process = builder.start();
@@ -128,6 +117,22 @@ public final class SubProcess extends Thread {
         executorService.submit(new StreamGobbler(process.getErrorStream(), System.err::println));
 
         Runtime.getRuntime().addShutdownHook(this);
+    }
+
+    public void executePython() throws IOException {
+        try {
+            File cd = new File(".").getAbsoluteFile();
+            File workdir = new File(cd, "pysvc").getCanonicalFile();
+            ProcessBuilder builder = new ProcessBuilder();
+            builder.directory(workdir);
+            builder.command("python3", "main.py");
+            Process process = builder.start();
+            StreamGobbler streamGobbler = new StreamGobbler(process.getInputStream(), System.out::println);
+            Executors.newSingleThreadExecutor().submit(streamGobbler);
+            int exitCode = process.waitFor();
+        } catch (Throwable thrown) {
+            thrown.printStackTrace(System.err);
+        }
     }
 
     @Override

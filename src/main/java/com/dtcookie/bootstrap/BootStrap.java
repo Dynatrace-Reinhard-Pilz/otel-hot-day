@@ -24,9 +24,10 @@ public class BootStrap {
     		return;
     	}
 		deleteDirectory(new File("./.tmp"));
-        new SubProcess("load-generator", "LOAD", "load-generator", false).execute();
-        new SubProcess("order-api", "FRONTEND", "order-api", true).execute();
-        new SubProcess("order-backend", "BACKEND", "order-backend", false).execute();
+        new SubProcess("load-generator", "LOAD", false).execute();
+        new SubProcess("order-api", "FRONTEND", true).execute();
+        new SubProcess("order-backend", "BACKEND", false).execute();
+        new SubProcess("order-feedback", "FEEDBACK", false).execute();
 
         synchronized (BootStrap.class) {
             BootStrap.class.wait();

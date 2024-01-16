@@ -4,8 +4,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.Statement;
-import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.logging.log4j.LogManager;
@@ -29,20 +28,21 @@ import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Scope;
+import jodd.http.HttpRequest;
+import jodd.http.HttpResponse;
 import io.opentelemetry.context.Context;
 
 public class FrontendServer {
 	
 	private static final Logger log = LogManager.getLogger(FrontendServer.class);
 
-	private static final String environment = System.getenv("ENVIRONMENT");
 	public static final int LISTEN_PORT = 54039;
 
 	private static final OpenTelemetry openTelemetry = GlobalOpenTelemetry.get();
 	private static final Meter meter = openTelemetry.meterBuilder("manual-instrumentation").setInstrumentationVersion("1.0.0").build();
-    private static final LongCounter confirmedPurchasesCounter = meter.counterBuilder("shop." + environment + ".purchases.confirmed").setDescription("Number of confirmed purchases").build();
-    private static final LongCounter expectedRevenueCounter = meter.counterBuilder("shop." + environment + ".revenue.expected").setDescription("Expected revenue in dollar").build();
-	private static final LongCounter actualRevenueCounter = meter.counterBuilder("shop." + environment + ".revenue.actual").setDescription("Actual revenue in dollar").build();
+    private static final LongCounter confirmedPurchasesCounter = meter.counterBuilder("shop.purchases.confirmed").setDescription("Number of confirmed purchases").build();
+    private static final LongCounter expectedRevenueCounter = meter.counterBuilder("shop.revenue.expected").setDescription("Expected revenue in dollar").build();
+	private static final LongCounter actualRevenueCounter = meter.counterBuilder("shop.revenue.actual").setDescription("Actual revenue in dollar").build();
 	private static final Tracer tracer = openTelemetry.getTracer("manual-instrumentation");
 
 
@@ -58,7 +58,7 @@ public class FrontendServer {
 	}
 
 	public static String handlePlaceOrder(HttpExchange exchange) throws Exception {
-		// log.info("Frontend received request: " + exchange.getRequestURI().toString());
+		// log.info("Placing order");
 		Product product = Product.random();
 		String productID = product.getID();
 		reportExpectedRevenue(product);
@@ -110,8 +110,6 @@ public class FrontendServer {
 
 	public static String handlePurchaseConfirmed(HttpExchange exchange) throws Exception {
 		String productID = exchange.getRequestHeaders().get("product.id").get(0);
-		// String requestURI = exchange.getRequestURI().toString();
-		// String productID = requestURI.substring(requestURI.lastIndexOf("/") + 1);
 		Product product = Product.getByID(productID);
 		Span span = tracer.spanBuilder("purchase-confirmed").setSpanKind(SpanKind.INTERNAL).startSpan();
 		try (Scope scope = span.makeCurrent()) {

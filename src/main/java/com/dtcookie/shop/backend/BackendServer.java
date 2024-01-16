@@ -32,7 +32,9 @@ import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.TextMapGetter;
+import io.opentelemetry.context.propagation.TextMapSetter;
 import io.opentelemetry.semconv.SemanticAttributes;
+import com.dtcookie.util.GETRequest;
 
 public class BackendServer {
 
@@ -79,7 +81,31 @@ public class BackendServer {
 			for (int i = 0; i < 1 + ThreadLocalRandom.current().nextLong(1); i++) {
 				executor.submit(BackendServer::postProcess);
 			}
+			notifyProcessingBackend(product);
 			return UUID.randomUUID();
+		} catch (Exception e) {
+			span.recordException(e);
+			span.setStatus(StatusCode.ERROR);
+			throw e;
+		} finally {
+			span.end();
+		}
+	}
+
+	public static void notifyProcessingBackend(Product product) throws Exception {
+		TextMapSetter<Map<String,String>> setter = new TextMapSetter<Map<String,String>>() {
+			@Override
+			public void set(Map<String,String> carrier, String key, String value) {
+				carrier.put(key, value);
+			}
+		};	
+		Span span = tracer.spanBuilder("quote-http").setSpanKind(SpanKind.CLIENT).startSpan();
+		try (Scope scope = span.makeCurrent()) {
+			span.setAttribute(SemanticAttributes.HTTP_REQUEST_METHOD, "GET");
+			span.setAttribute(SemanticAttributes.HTTP_URL, "http://localhost:8090/quote");
+			GETRequest request = new GETRequest("http://localhost:8090/quote");
+			openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), request.headers(), setter);
+			request.send();
 		} catch (Exception e) {
 			span.recordException(e);
 			span.setStatus(StatusCode.ERROR);
