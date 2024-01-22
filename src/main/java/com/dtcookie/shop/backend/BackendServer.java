@@ -104,6 +104,8 @@ public class BackendServer {
 			span.setAttribute(SemanticAttributes.HTTP_REQUEST_METHOD, "GET");
 			span.setAttribute(SemanticAttributes.HTTP_URL, "http://localhost:8090/quote");
 			GETRequest request = new GETRequest("http://localhost:8090/quote");
+			// -- remote python server endpoint --
+			// GETRequest request = new GETRequest("http://<replace with remote IP address>/app");
 			openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), request.headers(), setter);
 			request.send();
 		} catch (Exception e) {
