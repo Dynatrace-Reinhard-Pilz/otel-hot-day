@@ -93,28 +93,9 @@ public class BackendServer {
 	}
 
 	public static void notifyProcessingBackend(Product product) throws Exception {
-		TextMapSetter<Map<String,String>> setter = new TextMapSetter<Map<String,String>>() {
-			@Override
-			public void set(Map<String,String> carrier, String key, String value) {
-				carrier.put(key, value);
-			}
-		};	
-		Span span = tracer.spanBuilder("quote-http").setSpanKind(SpanKind.CLIENT).startSpan();
-		try (Scope scope = span.makeCurrent()) {
-			span.setAttribute(SemanticAttributes.HTTP_REQUEST_METHOD, "GET");
-			span.setAttribute(SemanticAttributes.HTTP_URL, "http://localhost:8090/quote");
-			GETRequest request = new GETRequest("http://localhost:8090/quote");
-			// -- remote python server endpoint --
-			// GETRequest request = new GETRequest("http://<replace with remote IP address>/app");
-			openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), request.headers(), setter);
-			request.send();
-		} catch (Exception e) {
-			span.recordException(e);
-			span.setStatus(StatusCode.ERROR);
-			throw e;
-		} finally {
-			span.end();
-		}
+		GETRequest request = new GETRequest("http://localhost:8090/quote");
+		// GETRequest request = new GETRequest("http://<replace with remote IP address>/app");
+		request.send();
 	}
 
 	public static UUID handleCreditcards(HttpExchange exchange) throws Exception {
@@ -153,10 +134,8 @@ public class BackendServer {
 	public static String handleInventory(HttpExchange exchange) throws Exception {
 		String url = exchange.getRequestURI().toString();
 		String productName = url.substring(url.lastIndexOf("/"));
-		int quantity = 1;
-		Headers headers = exchange.getRequestHeaders();
-		Context ctx = openTelemetry.getPropagators().getTextMapPropagator().extract(Context.current(), headers, getter);
-		try (Scope ignored = ctx.makeCurrent()) {
+		int quantity = 1;				
+		try (Scope ignored = Context.current().makeCurrent()) {
 			Span serverSpan = tracer.spanBuilder(exchange.getRequestURI().toString()).setSpanKind(SpanKind.SERVER)
 					.startSpan();
 			try (Scope scope = serverSpan.makeCurrent()) {
@@ -195,24 +174,13 @@ public class BackendServer {
 					break;
 				}
 			}
-			if (!deducted) {
-				span.addEvent("nothing deducted", Attributes.builder().put("product.name", productName).build());
-			}
 		} finally {
 			span.end();
 		}
 	}
 
 	public static void deductFromLocation(StorageLocation location, String productName, int quantity) {
-		Span span = tracer.spanBuilder("deduct").setSpanKind(SpanKind.INTERNAL).startSpan();
-		try (Scope scope = span.makeCurrent()) {
-			span.setAttribute("product.name", productName);
-			span.setAttribute("location.name", location.getName());
-			span.setAttribute("quantity", quantity);
-			location.deduct(productName, quantity);
-		} finally {
-			span.end();
-		}
+		location.deduct(productName, quantity);
 	}
 
 	public static Object postProcess() throws Exception {

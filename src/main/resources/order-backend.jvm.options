@@ -1,1 +1,1 @@
--javaagent:opentelemetry-javaagent.jar
+#-javaagent:opentelemetry-javaagent.jar
